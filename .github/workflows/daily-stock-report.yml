@@ -1,19 +1,25 @@
 name: Daily Stock Report
 
 on:
-  schedule:
-    # 盘前报告 08:30 北京时间 (0 0 = UTC 0:00)
-    - cron: '0 0 * * 1-5'
-    # 持仓监控 14:30 北京时间 (30 6 = UTC 6:30)
-    - cron: '30 6 * * 1-5'
-    # 盘后复盘 16:00 北京时间 (0 8 = UTC 8:00)
-    - cron: '0 8 * * 1-5'
   workflow_dispatch:
+    inputs:
+      report_type:
+        description: 'Report Type'
+        required: true
+        default: 'morning'
+        type: choice
+        options:
+          - morning
+          - alert
+          - evening
+  schedule:
+    - cron: '0 0 * * 1-5'      # 08:30 北京时间
+    - cron: '30 6 * * 1-5'     # 14:30 北京时间
+    - cron: '0 8 * * 1-5'      # 16:00 北京时间
 
 jobs:
-  morning-report:
+  stock-report:
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 0 * * 1-5'
     steps:
       - uses: actions/checkout@v4
       
@@ -23,72 +29,20 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests charset-normalizer
       
-      - name: Run report script
-        id: report
+      - name: Run stock report
         run: |
-          python stock_report.py >> report.txt
-          echo "report=$(cat report.txt)" >> $GITHUB_OUTPUT
+          python stock_report.py > report.txt 2>&1 || true
+          cat report.txt
+          echo "report_content=$(cat report.txt | base64)" >> $GITHUB_OUTPUT
       
       - name: Send to WeChat
         if: env.WECOM_WEBHOOK != ''
         run: |
-          REPORT=$(cat report.txt)
+          CONTENT=$(cat report.txt | base64 -w0)
           curl -X POST "$WECOM_WEBHOOK" \
             -H "Content-Type: application/json" \
-            -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"$REPORT\"}}"
+            -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"$CONTENT\"}}"
         env:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
-
-  alert-report:
-    runs-on: ubuntu-latest
-    if: github.event.schedule == '30 6 * * 1-5'
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install dependencies
-        run: pip install requests
-      
-      - name: Run alert script
-        run: python -c "
-import requests
-from datetime import datetime
-
-codes = ['sh688256', 'sh688072', 'sh688981', 'sh002371', 'hk01810']
-resp = requests.get('http://hq.sinajs.cn/list=' + ','.join(codes), 
-  headers={'Referer': 'http://finance.sina.com.cn'})
-print('【持仓监控】' + datetime.now().strftime('%Y-%m-%d') + ' 14:30')
-print(resp.text[:500])
-"
-
-  evening-report:
-    runs-on: ubuntu-latest
-    if: github.event.schedule == '0 8 * * 1-5'
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-      
-      - name: Install dependencies
-        run: pip install requests
-      
-      - name: Run review script
-        run: python -c "
-import requests
-from datetime import datetime
-
-codes = ['sh000001', 'sz399001', 'sz399006']
-resp = requests.get('http://hq.sinajs.cn/list=' + ','.join(codes),
-  headers={'Referer': 'http://finance.sina.com.cn'})
-print('【每日复盘】' + datetime.now().strftime('%Y-%m-%d') + ' 16:00')
-print(resp.text[:500])
-"
