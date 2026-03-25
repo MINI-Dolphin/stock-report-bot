@@ -5,9 +5,6 @@ import os
 import requests
 from datetime import datetime
 
-# Force UTF-8 output
-sys.stdout.reconfigure(encoding='utf-8')
-
 class SinaAPI:
     BASE_URL = "http://hq.sinajs.cn/list="
     HEADERS = {"Referer": "http://finance.sina.com.cn"}
@@ -19,8 +16,7 @@ class SinaAPI:
             resp = requests.get(url, headers=cls.HEADERS, timeout=10)
             resp.encoding = "gbk"
             return cls._parse(resp.text)
-        except Exception as e:
-            print(f"Error fetching: {e}", file=sys.stderr)
+        except:
             return []
     
     @classmethod
@@ -41,7 +37,7 @@ class SinaAPI:
                 close = float(data[2]) if data[2] else 0
                 pct = round((price - close) / close * 100, 2) if close > 0 else 0
                 results.append({"code": left, "name": data[0], "price": price, "pct": pct})
-            except Exception as e:
+            except:
                 continue
         return results
 
@@ -56,7 +52,7 @@ def generate_report():
     elif avg_pct > 0.5:
         attitude, position = "BAOSHOU MAIRU", "55-65%"
     else:
-        attitude, position = "CHIBI GUANWANG", "30-40%"
+        attitude, position = "CHI BI GUANWANG", "30-40%"
     
     lines = []
     lines.append("=" * 40)
@@ -64,28 +60,28 @@ def generate_report():
     lines.append(datetime.now().strftime("%Y-%m-%d"))
     lines.append("=" * 40)
     lines.append("")
-    lines.append(f"[TAIDU] {attitude} | [CANGWEI] {position}")
+    lines.append("[TAIDU] " + attitude + " | [CANGWEI] " + position)
     lines.append("")
     lines.append("[A GUSHO ZHISHI]")
     for idx in indices:
         pct = idx.get("pct", 0)
         arrow = "[+]" if pct >= 0 else "[-]"
-        lines.append(f"{arrow} {idx['name']}: {idx['price']:.2f} ({pct:+.2f}%)")
+        lines.append(arrow + " " + idx['name'] + ": " + str(round(idx['price'], 2)) + " (" + ("+" if pct >= 0 else "") + str(pct) + "%)")
     
     lines.append("")
     lines.append("[HEXIN BIAODE]")
     sorted_tech = sorted(tech, key=lambda x: x.get("pct", 0), reverse=True)[:3]
     for i, t in enumerate(sorted_tech, 1):
         pct = t.get("pct", 0)
-        lines.append(f"[{i}] {t['name']} {t['code']}")
-        lines.append(f"    ZHANGFUE: {pct:+.2f}% | RUCHANG: {t['price']:.2f}")
+        lines.append("[" + str(i) + "] " + t['name'] + " " + t['code'])
+        lines.append("    ZHANGFU: " + ("+" if pct >= 0 else "") + str(pct) + "% | RUCHANG: " + str(round(t['price'], 2)))
     
     lines.append("")
     lines.append("[FENGKONG]")
-    lines.append(f"CANGWEI: {position} | DANZHI: 15%")
+    lines.append("CANGWEI: " + position + " | DANZHI: 15%")
     lines.append("ZHUISUN: -5~6%")
     lines.append("")
-    lines.append("ZAN供参考，不构成投资建议。")
+    lines.append("ZAN仅供参考，不构成投资建议。")
     
     return "\n".join(lines)
 
