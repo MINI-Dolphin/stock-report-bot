@@ -1,0 +1,5 @@
+# Ignore helper scripts with tokens
+add_secret.py
+check_run.py
+get_logs.py
+*.py.bak
