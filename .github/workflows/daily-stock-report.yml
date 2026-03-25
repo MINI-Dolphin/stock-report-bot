@@ -1,0 +1,66 @@
+name: 每日股票动量报告
+
+on:
+  schedule:
+    # 盘前报告 08:30 北京时间
+    - cron: '0 0 * * 1-5'
+    # 持仓监控 14:30 北京时间  
+    - cron: '30 6 * * 1-5'
+    # 盘后复盘 16:00 北京时间
+    - cron: '0 8 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  stock-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 获取股票数据
+        run: |
+          # 获取A股指数
+          INDEX=$(curl -s "http://hq.sinajs.cn/list=sh000001,sz399001,sz399006,sh000688" -H "Referer: http://finance.sina.com.cn" | \
+            python3 -c "
+import sys, json
+lines = sys.stdin.read().strip().split('\n')
+result = []
+for line in lines:
+    if '=' in line:
+        data = line.split('=\"')[1].strip('\"').split(',')
+        if len(data) > 5:
+            name = data[0]
+            price = float(data[3]) if data[3] else 0
+            close = float(data[2]) if data[2] else 0
+            pct = round((price - close) / close * 100, 2) if close else 0
+            result.append({'name': name, 'price': price, 'pct': pct})
+print(json.dumps(result))
+")
+          echo "indices=$INDEX" >> $GITHUB_OUTPUT
+          
+      - name: 生成报告
+        id: report
+        run: |
+          INDICES=${{ steps.data.outputs.indices }}
+          
+          # 简单报告生成
+          REPORT="【每日动量报告】
+          
+📊 A股行情
+A股平均涨跌幅待计算
+
+⚠️ 本报告由GitHub Actions自动生成
+详情请查看: https://github.com/${{ github.repository }}/actions"
+          
+          echo "report=$REPORT" >> $GITHUB_OUTPUT
+          
+      - name: 发送到企业微信
+        if: env.WECOM_WEBHOOK != ''
+        run: |
+          curl -X POST "$WECOM_WEBHOOK" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "msgtype": "text",
+              "text": {
+                "content": "${{ steps.report.outputs.report }}"
+              }
+            }'
+        env:
+          WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
