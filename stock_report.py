@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-GitHub Actions 用的股票报告脚本
-"""
 import sys
-import json
 import os
 import requests
+from datetime import datetime
+
+# Force UTF-8 output
+sys.stdout.reconfigure(encoding='utf-8')
 
 class SinaAPI:
     BASE_URL = "http://hq.sinajs.cn/list="
@@ -19,7 +19,8 @@ class SinaAPI:
             resp = requests.get(url, headers=cls.HEADERS, timeout=10)
             resp.encoding = "gbk"
             return cls._parse(resp.text)
-        except:
+        except Exception as e:
+            print(f"Error fetching: {e}", file=sys.stderr)
             return []
     
     @classmethod
@@ -40,55 +41,53 @@ class SinaAPI:
                 close = float(data[2]) if data[2] else 0
                 pct = round((price - close) / close * 100, 2) if close > 0 else 0
                 results.append({"code": left, "name": data[0], "price": price, "pct": pct})
-            except:
+            except Exception as e:
                 continue
         return results
 
-def generate_morning_report():
-    """生成盘前报告"""
+def generate_report():
     indices = SinaAPI.get_quotes(["sh000001", "sz399001", "sz399006", "sh000688", "sh000300"])
     tech = SinaAPI.get_quotes(["sh688981", "sh688256", "sh688072", "sz002230", "hk01810"])
-    hk = SinaAPI.get_quotes(["hk01810", "hk00700", "hk09988", "hk03690"])
     
     avg_pct = sum(i.get("pct", 0) for i in indices) / len(indices) if indices else 0
     
     if avg_pct > 1:
-        attitude, position = "激进买入", "70-80%"
+        attitude, position = "JIJIN MAIRU", "70-80%"
     elif avg_pct > 0.5:
-        attitude, position = "保守买入", "55-65%"
+        attitude, position = "BAOSHOU MAIRU", "55-65%"
     else:
-        attitude, position = "持币观望", "30-40%"
+        attitude, position = "CHIBI GUANWANG", "30-40%"
     
-    report = f"【每日动量报告】\n\n🎯 态度：{attitude} | 仓位：{position}\n\n📊 A股指数\n"
+    lines = []
+    lines.append("=" * 40)
+    lines.append("MEIRI DONGLIANG BAOGAO")
+    lines.append(datetime.now().strftime("%Y-%m-%d"))
+    lines.append("=" * 40)
+    lines.append("")
+    lines.append(f"[TAIDU] {attitude} | [CANGWEI] {position}")
+    lines.append("")
+    lines.append("[A GUSHO ZHISHI]")
     for idx in indices:
         pct = idx.get("pct", 0)
         arrow = "[+]" if pct >= 0 else "[-]"
-        report += f"{arrow} {idx['name']}: {idx['price']:.2f} ({pct:+.2f}%)\n"
+        lines.append(f"{arrow} {idx['name']}: {idx['price']:.2f} ({pct:+.2f}%)")
     
-    report += "\n🔥 核心标的\n"
+    lines.append("")
+    lines.append("[HEXIN BIAODE]")
     sorted_tech = sorted(tech, key=lambda x: x.get("pct", 0), reverse=True)[:3]
     for i, t in enumerate(sorted_tech, 1):
         pct = t.get("pct", 0)
-        report += f"【{i}】{t['name']} {t['code']} {pct:+.2f}%\n"
+        lines.append(f"[{i}] {t['name']} {t['code']}")
+        lines.append(f"    ZHANGFUE: {pct:+.2f}% | RUCHANG: {t['price']:.2f}")
     
-    report += "\n⚠️ 风控\n"
-    report += f"仓位≤{position.replace('%','')} | 单只≤15%\n"
-    report += "仅供参考，不构成投资建议。"
+    lines.append("")
+    lines.append("[FENGKONG]")
+    lines.append(f"CANGWEI: {position} | DANZHI: 15%")
+    lines.append("ZHUISUN: -5~6%")
+    lines.append("")
+    lines.append("ZAN供参考，不构成投资建议。")
     
-    return report
-
-def send_to_wecom(webhook_url, content):
-    """发送到企业微信"""
-    if not webhook_url:
-        print("未配置Webhook，跳过发送")
-        return
-    
-    data = {"msgtype": "text", "text": {"content": content}}
-    resp = requests.post(webhook_url, json=data, timeout=10)
-    print(f"发送结果: {resp.text}")
+    return "\n".join(lines)
 
 if __name__ == "__main__":
-    webhook = os.environ.get("WECOM_WEBHOOK", "")
-    report = generate_morning_report()
-    print(report)
-    send_to_wecom(webhook, report)
+    print(generate_report())
