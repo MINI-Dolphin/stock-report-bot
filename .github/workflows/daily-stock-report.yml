@@ -2,16 +2,6 @@ name: Daily Stock Report
 
 on:
   workflow_dispatch:
-    inputs:
-      report_type:
-        description: 'Report Type'
-        required: true
-        default: 'morning'
-        type: choice
-        options:
-          - morning
-          - alert
-          - evening
   schedule:
     - cron: '0 0 * * 1-5'      # 08:30 北京时间
     - cron: '30 6 * * 1-5'     # 14:30 北京时间
@@ -32,17 +22,15 @@ jobs:
         run: pip install requests charset-normalizer
       
       - name: Run stock report
-        run: |
-          python stock_report.py > report.txt 2>&1 || true
-          cat report.txt
-          echo "report_content=$(cat report.txt | base64)" >> $GITHUB_OUTPUT
+        run: python stock_report.py
       
       - name: Send to WeChat
         if: env.WECOM_WEBHOOK != ''
         run: |
-          CONTENT=$(cat report.txt | base64 -w0)
+          REPORT=$(python stock_report.py 2>&1)
+          PAYLOAD=$(echo "{\"msgtype\":\"text\",\"text\":{\"content\":\"$REPORT\"}}" | base64 -w0)
           curl -X POST "$WECOM_WEBHOOK" \
             -H "Content-Type: application/json" \
-            -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"$CONTENT\"}}"
+            -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"$REPORT\"}}"
         env:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
