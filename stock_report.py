@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""
+股票日报 - 获取数据 + 直接发送到企业微信
+GitHub Actions 专用，避免 shell 中文乱码
+"""
 import sys
+import os
 import requests
 from datetime import datetime
 
@@ -13,9 +18,10 @@ class SinaAPI:
         try:
             url = cls.BASE_URL + ",".join(codes)
             resp = requests.get(url, headers=cls.HEADERS, timeout=10)
-            # Keep as bytes, decode manually
-            return cls._parse(resp.content.decode('gbk'))
-        except:
+            text = resp.content.decode('gbk', errors='replace')
+            return cls._parse(text)
+        except Exception as e:
+            print(f"[ERROR] get_quotes: {e}", file=sys.stderr)
             return []
     
     @classmethod
@@ -40,26 +46,9 @@ class SinaAPI:
                 continue
         return results
 
-def safe_str(s):
-    """Convert to safe ASCII for WeChat"""
-    if not s:
-        return ""
-    # Replace Chinese with English abbreviations
-    replacements = {
-        "上证指数": "SHANGZHENG",
-        "深证成指": "SHENZHENG",
-        "创业板指": "CHUANGYE",
-        "科创50": "KECHUANG50",
-        "沪深300": "HUASHEN300",
-        "激进买入": "JIJIN MAIRU",
-        "保守买入": "BAOSHOU MAIRU",
-        "持币观望": "CHIBI GUANWANG",
-        "仅供参考": "ZAN GONG CANKAO",
-        "不构成投资建议": "BU GOUCHENG TOUZI JIANYI",
-    }
-    for cn, en in replacements.items():
-        s = s.replace(cn, en)
-    return s
+def pct_str(pct):
+    sign = "+" if pct >= 0 else ""
+    return f"{sign}{pct}%"
 
 def generate_report():
     indices = SinaAPI.get_quotes(["sh000001", "sz399001", "sz399006", "sh000688", "sh000300"])
@@ -68,42 +57,66 @@ def generate_report():
     avg_pct = sum(i.get("pct", 0) for i in indices) / len(indices) if indices else 0
     
     if avg_pct > 1:
-        attitude, position = "JIJIN MAIRU", "70-80%"
+        attitude, position = "激进买入", "70-80%"
     elif avg_pct > 0.5:
-        attitude, position = "BAOSHOU MAIRU", "55-65%"
+        attitude, position = "保守买入", "55-65%"
     else:
-        attitude, position = "CHIBI GUANWANG", "30-40%"
+        attitude, position = "持币观望", "30-40%"
     
     lines = []
-    lines.append("=" * 40)
-    lines.append("MEIRI DONGLIANG BAOGAO " + datetime.now().strftime("%Y-%m-%d"))
-    lines.append("=" * 40)
+    lines.append("━" * 20)
+    lines.append("【每日动量报告】")
+    lines.append(datetime.now().strftime("%Y-%m-%d %H:%M"))
+    lines.append("━" * 20)
     lines.append("")
-    lines.append("[TAIDU] " + attitude + " | [CANGWEI] " + position)
+    lines.append("🎯 态度：" + attitude + " | 仓位：" + position)
     lines.append("")
-    lines.append("[A GUSHO ZHISHI]")
+    lines.append("📊 A股指数")
     for idx in indices:
         pct = idx.get("pct", 0)
-        arrow = "[+]" if pct >= 0 else "[-]"
-        lines.append(arrow + " " + safe_str(idx['name']) + ": " + str(round(idx['price'], 2)) + " (" + ("+" if pct >= 0 else "") + str(pct) + "%)")
+        arrow = "▲" if pct >= 0 else "▼"
+        lines.append(f"  {arrow} {idx['name']} {idx['price']:.2f} ({pct_str(pct)})")
     
     lines.append("")
-    lines.append("[HEXIN BIAODE]")
+    lines.append("🔥 核心标的")
     sorted_tech = sorted(tech, key=lambda x: x.get("pct", 0), reverse=True)[:3]
     for i, t in enumerate(sorted_tech, 1):
         pct = t.get("pct", 0)
-        name = safe_str(t['name'])
-        lines.append("[" + str(i) + "] " + name + " " + t['code'])
-        lines.append("    ZHANGFU: " + ("+" if pct >= 0 else "") + str(pct) + "% | RUCHANG: " + str(round(t['price'], 2)))
+        lines.append(f"  #{i} {t['name']} {t['code']}")
+        lines.append(f"     涨幅: {pct_str(pct)} | 报价: {t['price']:.2f}")
     
     lines.append("")
-    lines.append("[FENGKONG]")
-    lines.append("CANGWEI: " + position + " | DANZHI: 15%")
-    lines.append("ZHUISUN: -5~6%")
+    lines.append("⚠️ 风控")
+    lines.append(f"  仓位 ≤ {position} | 单只 ≤ 15%")
+    lines.append("  止损: -5~6%")
     lines.append("")
-    lines.append("ZAN GONG CANKAO, BU GOUCHENG TOUZI JIANYI")
+    lines.append("仅供参考，不构成投资建议。")
     
     return "\n".join(lines)
 
+def send_to_wecom(webhook_url, content):
+    """用 Python requests 直接发送，避免 shell 编码问题"""
+    payload = {
+        "msgtype": "text",
+        "text": {"content": content}
+    }
+    resp = requests.post(
+        webhook_url,
+        json=payload,
+        headers={"Content-Type": "application/json"},
+        timeout=10
+    )
+    result = resp.json()
+    print(f"[WeChat] errcode={result.get('errcode')} errmsg={result.get('errmsg')}")
+    return result.get('errcode') == 0
+
 if __name__ == "__main__":
-    print(generate_report())
+    report = generate_report()
+    print(report)
+    
+    webhook = os.environ.get("WECOM_WEBHOOK", "")
+    if webhook:
+        ok = send_to_wecom(webhook, report)
+        sys.exit(0 if ok else 1)
+    else:
+        print("[INFO] WECOM_WEBHOOK not set, skipping send")

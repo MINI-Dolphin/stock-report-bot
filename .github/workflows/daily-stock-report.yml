@@ -10,6 +10,9 @@ on:
 jobs:
   stock-report:
     runs-on: ubuntu-latest
+    env:
+      PYTHONIOENCODING: utf-8
+      LANG: en_US.UTF-8
     steps:
       - uses: actions/checkout@v4
       
@@ -19,18 +22,9 @@ jobs:
           python-version: '3.11'
       
       - name: Install dependencies
-        run: pip install requests charset-normalizer
+        run: pip install requests
       
-      - name: Run stock report
-        run: python stock_report.py
-      
-      - name: Send to WeChat
-        if: env.WECOM_WEBHOOK != ''
-        run: |
-          REPORT=$(python stock_report.py 2>&1)
-          PAYLOAD=$(echo "{\"msgtype\":\"text\",\"text\":{\"content\":\"$REPORT\"}}" | base64 -w0)
-          curl -X POST "$WECOM_WEBHOOK" \
-            -H "Content-Type: application/json" \
-            -d "{\"msgtype\":\"text\",\"text\":{\"content\":\"$REPORT\"}}"
+      - name: Run report and send to WeChat
         env:
           WECOM_WEBHOOK: ${{ secrets.WECOM_WEBHOOK }}
+        run: python stock_report.py
