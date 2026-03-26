@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-股票日报 - 获取数据 + 直接发送到企业微信
-GitHub Actions 专用，避免 shell 中文乱码
+股票日报 - 盘前动量报告
+GitHub Actions 云端推送版本
 """
 import sys
 import os
@@ -20,8 +20,7 @@ class SinaAPI:
             resp = requests.get(url, headers=cls.HEADERS, timeout=10)
             text = resp.content.decode('gbk', errors='replace')
             return cls._parse(text)
-        except Exception as e:
-            print(f"[ERROR] get_quotes: {e}", file=sys.stderr)
+        except:
             return []
     
     @classmethod
@@ -46,10 +45,6 @@ class SinaAPI:
                 continue
         return results
 
-def pct_str(pct):
-    sign = "+" if pct >= 0 else ""
-    return f"{sign}{pct}%"
-
 def generate_report():
     indices = SinaAPI.get_quotes(["sh000001", "sz399001", "sz399006", "sh000688", "sh000300"])
     tech = SinaAPI.get_quotes(["sh688981", "sh688256", "sh688072", "sz002230", "hk01810"])
@@ -60,52 +55,47 @@ def generate_report():
         attitude, position = "激进买入", "70-80%"
     elif avg_pct > 0.5:
         attitude, position = "保守买入", "55-65%"
-    else:
+    elif avg_pct > -0.5:
         attitude, position = "持币观望", "30-40%"
+    else:
+        attitude, position = "空仓避险", "0-20%"
     
     lines = []
-    lines.append("━" * 20)
+    lines.append("=" * 40)
     lines.append("【每日动量报告】")
-    lines.append(datetime.now().strftime("%Y-%m-%d %H:%M"))
-    lines.append("━" * 20)
+    lines.append(datetime.now().strftime("%Y-%m-%d"))
+    lines.append("=" * 40)
     lines.append("")
-    lines.append("🎯 态度：" + attitude + " | 仓位：" + position)
+    lines.append(f"🎯 态度：{attitude} | 仓位：{position}")
     lines.append("")
+    
     lines.append("📊 A股指数")
     for idx in indices:
         pct = idx.get("pct", 0)
         arrow = "▲" if pct >= 0 else "▼"
-        lines.append(f"  {arrow} {idx['name']} {idx['price']:.2f} ({pct_str(pct)})")
-    
+        lines.append(f"  {arrow} {idx['name']} {idx['price']:.2f} ({pct:+.2f}%)")
     lines.append("")
+    
     lines.append("🔥 核心标的")
-    sorted_tech = sorted(tech, key=lambda x: x.get("pct", 0), reverse=True)[:3]
+    sorted_tech = sorted(tech, key=lambda x: x.get("pct", 0), reverse=True)
     for i, t in enumerate(sorted_tech, 1):
         pct = t.get("pct", 0)
         lines.append(f"  #{i} {t['name']} {t['code']}")
-        lines.append(f"     涨幅: {pct_str(pct)} | 报价: {t['price']:.2f}")
-    
+        lines.append(f"     涨幅: {pct:+.2f}% | 报价: {t['price']:.2f}")
     lines.append("")
+    
     lines.append("⚠️ 风控")
     lines.append(f"  仓位 ≤ {position} | 单只 ≤ 15%")
     lines.append("  止损: -5~6%")
+    lines.append("  盈亏比: 1:2 以上")
     lines.append("")
     lines.append("仅供参考，不构成投资建议。")
     
     return "\n".join(lines)
 
 def send_to_wecom(webhook_url, content):
-    """用 Python requests 直接发送，避免 shell 编码问题"""
-    payload = {
-        "msgtype": "text",
-        "text": {"content": content}
-    }
-    resp = requests.post(
-        webhook_url,
-        json=payload,
-        headers={"Content-Type": "application/json"},
-        timeout=10
-    )
+    payload = {"msgtype": "text", "text": {"content": content}}
+    resp = requests.post(webhook_url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
     result = resp.json()
     print(f"[WeChat] errcode={result.get('errcode')} errmsg={result.get('errmsg')}")
     return result.get('errcode') == 0
